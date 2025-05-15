@@ -6,6 +6,7 @@
 #include <chrono>
 #include <fcntl.h>
 #include <unistd.h>
+#include <pigpio.h>  // Include pigpio library for better PWM control
 
 RobotControl::RobotControl(QObject *parent) : QObject(parent),
     power(false),
@@ -41,9 +42,6 @@ RobotControl::RobotControl(QObject *parent) : QObject(parent),
 
 RobotControl::~RobotControl()
 {
-    // Enable verbose output for shutdown
-    verboseOutput = true;
-
     // Make sure ESCs are at neutral
     stopAllEscs();
 
@@ -51,24 +49,23 @@ RobotControl::~RobotControl()
     mainLoopTimer.stop();
     batteryTimer.stop();
     telemetryTimer.stop();
+
+    // Note: pigpio termination is handled in main
 }
 
 bool RobotControl::initialize()
 {
     std::cout << "Initializing RobotControl..." << std::endl;
 
-    // Initialize wiringPi library
-    if (wiringPiSetupGpio() == -1) {
-        std::cerr << "Failed to initialize wiringPi" << std::endl;
-        return false;
-    }
+    // Note: pigpio should already be initialized in main()
+    // so we don't initialize it here again
 
     // Initialize LED pin
-    pinMode(PIN_LED, OUTPUT);
-    digitalWrite(PIN_LED, HIGH);
+    gpioSetMode(PIN_LED, PI_OUTPUT);
+    gpioWrite(PIN_LED, 1);  // Turn on LED
 
     // Initialize battery ADC pin
-    pinMode(PIN_BATTERY, INPUT);
+    gpioSetMode(PIN_BATTERY, PI_INPUT);
 
     // Initialize ESC PWM control - silently during initialization
     initEscPwm();
@@ -80,8 +77,9 @@ bool RobotControl::initialize()
     batteryTest();
     std::cout << "Battery voltage: " << getBatteryVoltage() << "V" << std::endl;
 
-    // Start timers
-    mainLoopTimer.start(4);        // Main loop every 4ms
+    // Start timers with adjusted timing for Raspberry Pi 5
+    // Main loop at 10ms (100Hz) instead of 4ms (250Hz) to avoid overruns
+    mainLoopTimer.start(10);       // Main loop every 10ms (100Hz)
     batteryTimer.start(1000);      // Battery check every 1s
     telemetryTimer.start(130);     // Telemetry every ~130ms
 
@@ -92,14 +90,12 @@ bool RobotControl::initialize()
 void RobotControl::powerOn()
 {
     power = true;
-    verboseOutput = true;  // Enable verbose output after user powers on
     std::cout << "Robot powered on" << std::endl;
 }
 
 void RobotControl::powerOff()
 {
     power = false;
-    verboseOutput = true;  // Enable verbose output before stopping ESCs
     stopAllEscs();
     std::cout << "Robot powered off" << std::endl;
 }
@@ -141,7 +137,7 @@ void RobotControl::testAllEscs(int durationSeconds)
     auto endTime = startTime + std::chrono::seconds(durationSeconds);
 
     int16_t throttle = 0;
-    int16_t direction = 10;
+    int16_t direction = 5;
 
     // Slowly ramp up and down ESC power in both directions to test
     while (std::chrono::steady_clock::now() < endTime) {
@@ -155,13 +151,18 @@ void RobotControl::testAllEscs(int durationSeconds)
         setEscPwm(throttle, PIN_ESC_1);
         setEscPwm(-throttle, PIN_ESC_2);  // Opposite direction for the second ESC
 
+        // Print current throttle values for debugging
+        std::cout << "ESC Test: Right = " << throttle << ", Left = " << -throttle
+                  << " (PWM vals: " << mapThrottleToPwm(throttle) << ", " << mapThrottleToPwm(-throttle) << ")" << std::endl;
+
         // Small delay for smooth ramping
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 
     // Set ESCs to neutral when done
     stopAllEscs();
     std::cout << "ESC test complete" << std::endl;
+    verboseOutput = false;
 }
 
 void RobotControl::stopAllEscs()
@@ -193,22 +194,40 @@ void RobotControl::directEscControl(int16_t rightThrottle, int16_t leftThrottle)
     }
 }
 
-void RobotControl::setEscPwm(int16_t throttle, int escPin)
+// Helper function to map throttle (-100 to 100) to PWM value (1000 to 2000)
+int RobotControl::mapThrottleToPwm(int16_t throttle)
 {
     // Constrain throttle value to -100 to 100
     throttle = std::max(static_cast<int16_t>(-100), std::min(static_cast<int16_t>(100), throttle));
 
     // Map throttle (-100 to 100) to ESC PWM range (1000 to 2000)
     // -100 => 1000, 0 => 1500, 100 => 2000
-    int pwmValue = ESC_PWM_NEUTRAL + (throttle * (ESC_PWM_MAX - ESC_PWM_NEUTRAL) / 100);
+    return ESC_PWM_NEUTRAL + (throttle * (ESC_PWM_MAX - ESC_PWM_NEUTRAL) / 100);
+}
 
-    // Send PWM signal to ESC
-    softPwmWrite(escPin, pwmValue);
+void RobotControl::setEscPwm(int16_t throttle, int escPin)
+{
+    // Convert throttle to pulse width in microseconds (1000-2000μs range)
+    int pulseWidth = mapThrottleToPwm(throttle);
+
+    // Using our range of 20000, the pulse width value can be directly used as dutycycle
+    // Since 1000-2000μs pulse in a 20ms period corresponds to 1000-2000 dutycycle in a 20000 range
+
+    // Set PWM duty cycle directly using the microsecond value
+    gpioPWM(escPin, pulseWidth);
+
+    // Debug output
+    if (verboseOutput) {
+        std::cout << "ESC " << escPin << ": Throttle=" << throttle
+                  << ", Pulse=" << pulseWidth << "μs, Duty="
+                  << (pulseWidth * 100.0 / 20000.0) << "%" << std::endl;
+    }
 }
 
 float RobotControl::getBatteryVoltage() const
 {
     return batteryVoltage;
+
 }
 
 bool RobotControl::isBatteryDischarged() const
@@ -223,7 +242,16 @@ float RobotControl::getLoopTime() const
 
 void RobotControl::mainLoop()
 {
+    static bool firstRun = true;
+    static bool warnedLoopTime = false;
+
     auto startTime = QDateTime::currentMSecsSinceEpoch();
+
+    // Skip first run to avoid unnecessary messages
+    if (firstRun) {
+        firstRun = false;
+        return;
+    }
 
     // Calculate the robot's angle
     calculateAngle();
@@ -248,9 +276,15 @@ void RobotControl::mainLoop()
     if (elapsed > loopTimeMs) {
         loopTimeMs = elapsed;
 
-        // Emit warning if loop time is too long
-        if (loopTimeMs > 4.0f) {
+        // Emit warning if loop time is too long (but only once)
+        if (loopTimeMs > 8.0f && !warnedLoopTime) {
             emit loopOverrun(loopTimeMs);
+            warnedLoopTime = true;
+
+            // Adjust loop timing if possible
+            std::cout << "Adjusting control loop timing for better performance..." << std::endl;
+            mainLoopTimer.stop();
+            mainLoopTimer.start(10); // Increase to 10ms to match system capabilities
         }
     }
 }
@@ -274,14 +308,39 @@ void RobotControl::sendDataTimer()
 
 void RobotControl::initEscPwm()
 {
-    // Initialize ESC PWM pins with neutral value
-    softPwmCreate(PIN_ESC_1, ESC_PWM_NEUTRAL, ESC_PWM_RANGE);
-    softPwmCreate(PIN_ESC_2, ESC_PWM_NEUTRAL, ESC_PWM_RANGE);
+    // Set pins as outputs
+    gpioSetMode(PIN_ESC_1, PI_OUTPUT);
+    gpioSetMode(PIN_ESC_2, PI_OUTPUT);
 
-    std::cout << "ESC PWM initialized" << std::endl;
+    // For hardware PWM, pigpio accepts ranges from 25-40000
+    // and dutycycle from 0-range
+
+    // Let's use a range of 20000 to match our 20ms period (50Hz)
+    // This makes calculations easy:
+    // - 1ms pulse = 1000 dutycycle value (5% duty)
+    // - 1.5ms pulse = 1500 dutycycle value (7.5% duty)
+    // - 2ms pulse = 2000 dutycycle value (10% duty)
+
+    // Set PWM frequency to 50Hz
+    gpioSetPWMfrequency(PIN_ESC_1, 50);
+    gpioSetPWMfrequency(PIN_ESC_2, 50);
+
+    // Set PWM range to 20000 (0-20000 corresponds to 0-100% duty cycle in 20ms period)
+    // This gives us direct microsecond control (1 = 1μs in a 20ms period)
+    gpioSetPWMrange(PIN_ESC_1, 20000);
+    gpioSetPWMrange(PIN_ESC_2, 20000);
+
+    // Set both ESCs to neutral (1500μs pulse width)
+    gpioPWM(PIN_ESC_1, ESC_PWM_NEUTRAL);
+    gpioPWM(PIN_ESC_2, ESC_PWM_NEUTRAL);
+
+    std::cout << "ESC PWM initialized using pigpio hardware PWM" << std::endl;
+    std::cout << "  Frequency: 50Hz (20ms period)" << std::endl;
+    std::cout << "  Pulse range: 1000-2000μs (5-10% duty cycle)" << std::endl;
+    std::cout << "  Neutral point: " << ESC_PWM_NEUTRAL << "μs (7.5% duty cycle)" << std::endl;
 
     // Small delay to allow ESCs to recognize the neutral signal
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 }
 
 void RobotControl::initMpu6050()
@@ -328,7 +387,7 @@ void RobotControl::calibrateGyro()
         }
 
         // Flash LED during calibration
-        digitalWrite(PIN_LED, i % 2);
+        gpioWrite(PIN_LED, i % 2);
 
         // Delay to get stable readings
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -415,8 +474,8 @@ void RobotControl::calculateAngle()
 
     // Complementary filter
     // 1. Integrate gyroscope to get angle change
-    // The time constant is based on the 4ms loop time
-    constexpr float deltaT = 0.004f;  // 4ms in seconds
+    // Adjust for 10ms loop time instead of 4ms
+    constexpr float deltaT = 0.010f;  // 10ms in seconds (was 4ms)
     constexpr float gyroScale = 65.536f;  // For +/- 500 deg/s with 16-bit values
 
     robotAngle += (gyroZ / gyroScale) * deltaT;
@@ -425,7 +484,9 @@ void RobotControl::calculateAngle()
     float accAngle = atan2f(accelY, -accelX) * 57.2958f;  // Convert to degrees
 
     // 3. Combine using complementary filter
-    robotAngle = robotAngle * GYRO_WEIGHT + accAngle * (1.0f - GYRO_WEIGHT);
+    // Adjust filter weight for 10ms timing
+    const float adjustedGyroWeight = 0.985f;  // Slightly less weight for gyro at 10ms
+    robotAngle = robotAngle * adjustedGyroWeight + accAngle * (1.0f - adjustedGyroWeight);
 
     // Check if robot is vertical
     if (robotAngle > 50.0f || robotAngle < -50.0f) {
@@ -454,12 +515,15 @@ void RobotControl::calculatePid()
     pidInput = robotAngle;
 
     // Calculate derivative term (using finite difference)
-    float dInput = (3.0f * pidInput - 4.0f * lastPidInput + lastLastPidInput);
+    float dInput = (3.0f * pidInput - 4.0f * lastPidInput + lastLastPidInput) / 3.0f;
     lastLastPidInput = lastPidInput;
     lastPidInput = pidInput;
 
+    // Adjusted PID constants for 10ms loop time (vs original 4ms)
+    const float adjustedKD = KD * (4.0f / 10.0f); // Scale Kd for 10ms loop time
+
     // Calculate PID output
-    pidOutput = KP * pidInput + KD * dInput + KC * robotPosition + KV * robotSpeed;
+    pidOutput = KP * pidInput + adjustedKD * dInput + KC * robotPosition + KV * robotSpeed;
 
     // Limit PID output
     if (pidOutput > PID_OUT_MAX) {
@@ -469,7 +533,8 @@ void RobotControl::calculatePid()
     }
 
     // Update robot speed by integrating acceleration
-    robotSpeed += pidOutput;
+    // Adjust integration for 10ms vs 4ms
+    robotSpeed += pidOutput * (10.0f / 4.0f);
 
     // Safety check - stop if speed is too large
     if (robotSpeed > 2000.0f || robotSpeed < -2000.0f) {
@@ -478,7 +543,8 @@ void RobotControl::calculatePid()
     }
 
     // Update robot position by integrating velocity and add joystick offset
-    robotPosition += robotSpeed - 1.5f * responseRate * joystickY;
+    // Adjust integration for 10ms vs 4ms
+    robotPosition += (robotSpeed * (10.0f / 4.0f)) - 1.5f * responseRate * joystickY;
 
     // Calculate right and left motor throttle values (from -100 to 100)
     int16_t rightThrottle = pidOutput * 100.0f / PID_OUT_MAX;
@@ -506,7 +572,7 @@ void RobotControl::batteryTest()
     // Check battery state
     if (batteryVoltage < DISCHARGE_VOLTAGE) {
         batteryDischarged = true;
-        digitalWrite(PIN_LED, HIGH);  // LED on when battery discharged
+        gpioWrite(PIN_LED, 1);  // LED on when battery discharged
     } else {
         if (batteryVoltage > RESET_VOLTAGE) {
             batteryDischarged = false;
@@ -514,7 +580,7 @@ void RobotControl::batteryTest()
 
         // Flash LED when battery is good
         if (!batteryDischarged) {
-            digitalWrite(PIN_LED, !digitalRead(PIN_LED));
+            gpioWrite(PIN_LED, !gpioRead(PIN_LED));
         }
     }
 }
@@ -530,14 +596,4 @@ float RobotControl::readBatteryVoltage()
 
     // Fixed voltage for testing (11.1V battery - 3S LiPo)
     return 11.1f;
-
-    /*
-    // If you have an ADC connected, implement your specific ADC reading code here
-    // Example for ADS1115 or similar I2C ADC would go here
-
-    // Example using an analog read from a proper ADC implementation
-    int adcValue = analogRead(PIN_BATTERY);
-    float voltage = adcValue * (3.3f / 1023.0f) * 9.33f;  // Example scale factor for voltage divider
-    return voltage;
-    */
 }

@@ -6,6 +6,7 @@
 #include <thread>
 #include <atomic>
 #include <chrono>
+#include <pigpio.h>  // Include pigpio library
 
 #include "robotcontrol.h"
 
@@ -23,6 +24,10 @@ void signalHandler(int signal)
     }
 
     g_running = false;
+
+    // Terminate pigpio library
+    gpioTerminate();
+
     QCoreApplication::quit();
 }
 
@@ -166,6 +171,13 @@ int main(int argc, char *argv[])
     // Process command line arguments
     parser.process(app);
 
+    // Initialize pigpio before creating the RobotControl instance
+    if (gpioInitialise() < 0) {
+        std::cerr << "Failed to initialize pigpio! Exiting." << std::endl;
+        return 1;
+    }
+    std::cout << "pigpio initialized successfully" << std::endl;
+
     // Create the robot control instance
     RobotControl robotControl;
     g_robotControl = &robotControl;
@@ -196,6 +208,7 @@ int main(int argc, char *argv[])
     // Initialize robot control
     if (!robotControl.initialize()) {
         std::cerr << "Failed to initialize robot control! Exiting." << std::endl;
+        gpioTerminate();
         return 1;
     }
 
@@ -225,6 +238,9 @@ int main(int argc, char *argv[])
 
     // Give the input thread time to exit
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // Terminate pigpio before exiting
+    gpioTerminate();
 
     return result;
 }

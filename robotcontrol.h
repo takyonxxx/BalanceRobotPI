@@ -11,8 +11,7 @@
 // External libraries
 #include "i2cdev.h"
 #include "mpu6050.h"
-#include <softPwm.h>
-#include <wiringPi.h>
+// No wiringPi include - using pigpio instead
 
 class RobotControl : public QObject
 {
@@ -36,6 +35,7 @@ public:
 
     // ESC PWM Control
     void setEscPwm(int16_t throttle, int escPin);
+    int mapThrottleToPwm(int16_t throttle);
 
     // Battery information
     float getBatteryVoltage() const;
@@ -46,7 +46,7 @@ public:
 
     // ESC PWM Pins - Made public so they can be directly referenced
     static constexpr int PIN_ESC_1 = 18;  // First ESC PWM Pin (GPIO 18, Pin 12)
-    static constexpr int PIN_ESC_2 = 19;  // Second ESC PWM Pin (GPIO 19, Pin 35)
+    static constexpr int PIN_ESC_2 = 12;  // Second ESC PWM Pin (GPIO 12, Pin 32)
 
 private slots:
     void mainLoop();             // Main control loop
@@ -64,11 +64,10 @@ private:
     static constexpr int PIN_BATTERY = 0; // Battery voltage ADC Pin
 
     // PWM Configuration for ESC
-    static constexpr int ESC_PWM_FREQUENCY = 200;  // 200 Hz for BlueOS ESCs
-    static constexpr int ESC_PWM_RANGE = 1000;    // 1000 us pulse width range
-    static constexpr int ESC_PWM_MIN = 1000;      // Minimum pulse width
-    static constexpr int ESC_PWM_NEUTRAL = 1500;  // Neutral pulse width
-    static constexpr int ESC_PWM_MAX = 2000;      // Maximum pulse width
+    static constexpr int ESC_PWM_FREQUENCY = 50;   // 50 Hz (20ms period) for standard ESCs
+    static constexpr int ESC_PWM_MIN = 1000;       // Minimum pulse width (1000μs = 1ms)
+    static constexpr int ESC_PWM_NEUTRAL = 1500;   // Neutral pulse width (1500μs = 1.5ms)
+    static constexpr int ESC_PWM_MAX = 2000;       // Maximum pulse width (2000μs = 2ms)
 
     // Battery Constants
     static constexpr float DISCHARGE_VOLTAGE = 3.0f * 3.0f; // 3 cells at 3.0V each

@@ -1,6 +1,6 @@
+
 QT += core
 QT -= gui
-
 CONFIG += c++17 cmdline
 CONFIG -= app_bundle
 
@@ -13,7 +13,6 @@ SOURCES += \
         mpu6050.cpp \
         robotcontrol.cpp
 
-
 HEADERS += \
     i2cdev.h \
     mpu6050.h \
@@ -22,7 +21,7 @@ HEADERS += \
 INCLUDEPATH += /usr/local/include
 
 # Libraries needed
-LIBS += -lwiringPi -li2c
+LIBS += -lpigpio -lpthread -lrt -li2c
 
 # Default rules for deployment
 qnx: target.path = /tmp/$${TARGET}/bin
@@ -35,6 +34,7 @@ else: unix:!android: target.path = /opt/$${TARGET}/bin
 # git clone https://github.com/WiringPi/WiringPi.git
 # cd WiringPi
 # sudo ./build
+# nmap -sn 192.168.1.0/24
 # sudo raspi-config enable i2c
 # sudo nmcli connection add type wifi con-name "SSID" ifname wlan0 ssid "SSID" wifi-sec.key-mgmt wpa-psk wifi-sec.psk "password"
 # sudo nmcli connection modify "SSID" connection.autoconnect yes
