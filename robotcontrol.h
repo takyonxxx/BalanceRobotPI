@@ -7,11 +7,14 @@
 #include <iostream>
 #include <array>
 #include <vector>
+#include <thread>    // Add this for std::thread
+#include <atomic>    // Add this for std::atomic
 
 // External libraries
 #include "i2cdev.h"
 #include "mpu6050.h"
 #include <wiringPi.h>
+#include <softPwm.h>  // Include softPwm header
 
 class RobotControl : public QObject
 {
@@ -97,6 +100,9 @@ private:
     float readBatteryVoltage();
     void debugLog(const std::string& message);
 
+    // PWM generator thread function
+    void pwmGeneratorThread(int pin, std::atomic<int>& pulseWidth);
+
     // Helper method to read MPU6050 data
     bool readMpuData(int16_t &accelX, int16_t &accelY, int16_t &gyroZ);
 
@@ -134,6 +140,13 @@ private:
     bool gyroFilterEnabled;
     std::array<int32_t, 32> gyroZFilter;
     uint8_t filterCount;
+
+    // Custom PWM implementation
+    std::thread pwmThread1;
+    std::thread pwmThread2;
+    std::atomic<bool> pwmRunning;
+    std::atomic<int> esc1PulseWidth;
+    std::atomic<int> esc2PulseWidth;
 
     bool verboseOutput;           // Controls console output
 };

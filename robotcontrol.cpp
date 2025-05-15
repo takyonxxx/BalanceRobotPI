@@ -6,7 +6,9 @@
 #include <chrono>
 #include <fcntl.h>
 #include <unistd.h>
-#include <pigpio.h>  // Include pigpio library
+#include <pthread.h>
+#include <wiringPi.h>  // Replace pigpio with wiringPi
+#include <softPwm.h>   // Add softPwm for software PWM
 
 RobotControl::RobotControl(QObject *parent) : QObject(parent),
     power(false),
@@ -29,7 +31,10 @@ RobotControl::RobotControl(QObject *parent) : QObject(parent),
     gyroZOffset(0),
     gyroFilterEnabled(true),
     filterCount(0),
-    verboseOutput(false)  // Start with silent operation
+    verboseOutput(false),
+    pwmRunning(false),
+    esc1PulseWidth(ESC_PWM_NEUTRAL),
+    esc2PulseWidth(ESC_PWM_NEUTRAL)
 {
     // Initialize the gyro filter array to zero
     gyroZFilter.fill(0);
@@ -50,22 +55,100 @@ RobotControl::~RobotControl()
     batteryTimer.stop();
     telemetryTimer.stop();
 
-    // Note: pigpio termination is handled in main
+    // Stop PWM threads
+    pwmRunning = false;
+    if (pwmThread1.joinable()) {
+        pwmThread1.join();
+    }
+    if (pwmThread2.joinable()) {
+        pwmThread2.join();
+    }
+}
+
+void RobotControl::pwmGeneratorThread(int pin, std::atomic<int>& pulseWidth)
+{
+    // Period for 50Hz = 20,000 microseconds
+    const int periodUs = 20000;
+
+    // Measure sleep overhead once at startup
+    std::chrono::high_resolution_clock::time_point start, end;
+    start = std::chrono::high_resolution_clock::now();
+    std::this_thread::sleep_for(std::chrono::microseconds(100));
+    end = std::chrono::high_resolution_clock::now();
+    int overhead = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() - 100;
+    overhead = std::max(0, overhead); // Ensure non-negative
+
+    std::cout << "PWM thread for pin " << pin << " started. Sleep overhead: " << overhead << "μs" << std::endl;
+
+    // Set thread to high priority
+    pthread_t this_thread = pthread_self();
+    struct sched_param params;
+    params.sched_priority = sched_get_priority_max(SCHED_FIFO);
+    pthread_setschedparam(this_thread, SCHED_FIFO, &params);
+
+    while (pwmRunning) {
+        // Get start time for this cycle
+        auto cycleStart = std::chrono::high_resolution_clock::now();
+
+        // Get current pulse width
+        int width = pulseWidth.load();
+
+        // Generate pulse
+        digitalWrite(pin, HIGH);
+
+        // High precision sleep for pulse width
+        if (width > overhead) {
+            std::this_thread::sleep_for(std::chrono::microseconds(width - overhead));
+        }
+
+        // Get precise time after sleep
+        auto pulseEnd = std::chrono::high_resolution_clock::now();
+        auto elapsedUs = std::chrono::duration_cast<std::chrono::microseconds>(
+                             pulseEnd - cycleStart).count();
+
+        // Adjust timing if we slept too long
+        if (elapsedUs < width) {
+            // Spin-wait for the remaining time
+            while (std::chrono::duration_cast<std::chrono::microseconds>(
+                       std::chrono::high_resolution_clock::now() - cycleStart).count() < width) {
+                // Busy wait
+            }
+        }
+
+        // Set pin low at exactly the right time
+        digitalWrite(pin, LOW);
+
+        // Calculate time spent for the pulse
+        auto pulseTime = std::chrono::duration_cast<std::chrono::microseconds>(
+                             std::chrono::high_resolution_clock::now() - cycleStart).count();
+
+        // Sleep for the remainder of the period
+        int remainingTime = periodUs - pulseTime;
+        if (remainingTime > overhead) {
+            std::this_thread::sleep_for(std::chrono::microseconds(remainingTime - overhead));
+        }
+
+        // Spin-wait to ensure accurate timing for next cycle
+        while (std::chrono::duration_cast<std::chrono::microseconds>(
+                   std::chrono::high_resolution_clock::now() - cycleStart).count() < periodUs) {
+            // Busy wait
+        }
+    }
 }
 
 bool RobotControl::initialize()
 {
     std::cout << "Initializing RobotControl..." << std::endl;
 
-    // Note: pigpio should already be initialized in main()
+    // Note: wiringPi should already be initialized in main()
     // so we don't initialize it here again
 
     // Initialize LED pin
-    gpioSetMode(PIN_LED, PI_OUTPUT);
-    gpioWrite(PIN_LED, 1);  // Turn on LED
+    pinMode(PIN_LED, OUTPUT);
+    digitalWrite(PIN_LED, HIGH);  // Turn on LED
 
     // Initialize battery ADC pin
-    gpioSetMode(PIN_BATTERY, PI_INPUT);
+    pinMode(PIN_BATTERY, INPUT);
 
     // Initialize ESC PWM control - silently during initialization
     initEscPwm();
@@ -265,25 +348,6 @@ int RobotControl::mapThrottleToPwm(int16_t throttle)
     return ESC_PWM_NEUTRAL + (throttle * (ESC_PWM_MAX - ESC_PWM_NEUTRAL) / 100);
 }
 
-void RobotControl::setEscPwm(int16_t throttle, int escPin)
-{
-    // Convert throttle to pulse width in microseconds
-    int pulseWidth = mapThrottleToPwm(throttle);
-
-    // Using our range of 20000, the pulse width value can be directly used as dutycycle
-    // Since 1000-2000μs pulse in a 20ms period corresponds to 1000-2000 dutycycle in a 20000 range
-
-    // Set PWM duty cycle directly using the microsecond value
-    gpioPWM(escPin, pulseWidth);
-
-    // Debug output
-    if (verboseOutput) {
-        std::cout << "ESC " << escPin << ": Throttle=" << throttle
-                  << ", Pulse=" << pulseWidth << "μs, Duty="
-                  << (pulseWidth * 100.0 / 20000.0) << "%" << std::endl;
-    }
-}
-
 float RobotControl::getBatteryVoltage() const
 {
     return batteryVoltage;
@@ -368,38 +432,51 @@ void RobotControl::sendDataTimer()
 void RobotControl::initEscPwm()
 {
     // Set pins as outputs
-    gpioSetMode(PIN_ESC_1, PI_OUTPUT);
-    gpioSetMode(PIN_ESC_2, PI_OUTPUT);
+    pinMode(PIN_ESC_1, OUTPUT);
+    pinMode(PIN_ESC_2, OUTPUT);
 
-    // For hardware PWM, pigpio accepts ranges from 25-40000
-    // and dutycycle from 0-range
+    // Set both pins low initially
+    digitalWrite(PIN_ESC_1, LOW);
+    digitalWrite(PIN_ESC_2, LOW);
 
-    // Let's use a range of 20000 to match our 20ms period (50Hz)
-    // This makes calculations easy:
-    // - 1ms pulse = 1000 dutycycle value (5% duty)
-    // - 1.5ms pulse = 1500 dutycycle value (7.5% duty)
-    // - 2ms pulse = 2000 dutycycle value (10% duty)
+    // Set initial pulse widths
+    esc1PulseWidth = ESC_PWM_NEUTRAL;
+    esc2PulseWidth = ESC_PWM_NEUTRAL;
 
-    // Set PWM frequency to 50Hz
-    gpioSetPWMfrequency(PIN_ESC_1, 50);
-    gpioSetPWMfrequency(PIN_ESC_2, 50);
-
-    // Set PWM range to 20000 (0-20000 corresponds to 0-100% duty cycle in 20ms period)
-    // This gives us direct microsecond control (1 = 1μs in a 20ms period)
-    gpioSetPWMrange(PIN_ESC_1, 20000);
-    gpioSetPWMrange(PIN_ESC_2, 20000);
-
-    // Set both ESCs to neutral (1500μs pulse width)
-    gpioPWM(PIN_ESC_1, ESC_PWM_NEUTRAL);
-    gpioPWM(PIN_ESC_2, ESC_PWM_NEUTRAL);
-
-    std::cout << "ESC PWM initialized using pigpio hardware PWM" << std::endl;
-    std::cout << "  Frequency: 50Hz (20ms period)" << std::endl;
+    std::cout << "Initializing PWM generation for ESCs..." << std::endl;
+    std::cout << "  Target frequency: 50Hz (20ms period)" << std::endl;
     std::cout << "  Pulse range: 1000-2000μs (5-10% duty cycle)" << std::endl;
     std::cout << "  Neutral point: " << ESC_PWM_NEUTRAL << "μs (7.5% duty cycle)" << std::endl;
 
+    // Start PWM threads
+    pwmRunning = true;
+    pwmThread1 = std::thread(&RobotControl::pwmGeneratorThread, this, PIN_ESC_1, std::ref(esc1PulseWidth));
+    pwmThread2 = std::thread(&RobotControl::pwmGeneratorThread, this, PIN_ESC_2, std::ref(esc2PulseWidth));
+
     // Small delay to allow ESCs to recognize the neutral signal
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+    std::cout << "ESC PWM initialization complete" << std::endl;
+}
+
+void RobotControl::setEscPwm(int16_t throttle, int escPin)
+{
+    // Convert throttle to pulse width in microseconds
+    int pulseWidth = mapThrottleToPwm(throttle);
+
+    // Update the appropriate atomic variable
+    if (escPin == PIN_ESC_1) {
+        esc1PulseWidth = pulseWidth;
+    } else if (escPin == PIN_ESC_2) {
+        esc2PulseWidth = pulseWidth;
+    }
+
+    // Debug output
+    if (verboseOutput) {
+        std::cout << "ESC " << escPin << ": Throttle=" << throttle
+                  << ", Pulse=" << pulseWidth << "μs, Duty="
+                  << (pulseWidth * 100.0 / 20000.0) << "%" << std::endl;
+    }
 }
 
 void RobotControl::initMpu6050()
@@ -446,7 +523,7 @@ void RobotControl::calibrateGyro()
         }
 
         // Flash LED during calibration
-        gpioWrite(PIN_LED, i % 2);
+        digitalWrite(PIN_LED, i % 2 ? HIGH : LOW);
 
         // Delay to get stable readings
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -631,7 +708,7 @@ void RobotControl::batteryTest()
     // Check battery state
     if (batteryVoltage < DISCHARGE_VOLTAGE) {
         batteryDischarged = true;
-        gpioWrite(PIN_LED, 1);  // LED on when battery discharged
+        digitalWrite(PIN_LED, HIGH);  // LED on when battery discharged
     } else {
         if (batteryVoltage > RESET_VOLTAGE) {
             batteryDischarged = false;
@@ -639,7 +716,8 @@ void RobotControl::batteryTest()
 
         // Flash LED when battery is good
         if (!batteryDischarged) {
-            gpioWrite(PIN_LED, !gpioRead(PIN_LED));
+            int currentState = digitalRead(PIN_LED);
+            digitalWrite(PIN_LED, currentState ? LOW : HIGH);
         }
     }
 }

@@ -8,12 +8,14 @@
 #include <atomic>
 #include <chrono>
 #include <map>
-#include <pigpio.h>  // Include pigpio library
-#include <termios.h> // For terminal control
-#include <unistd.h>  // For POSIX API
-#include <fcntl.h>   // For file control options
-#include <poll.h>    // For polling input
+#include <wiringPi.h>  // Replace pigpio with wiringPi
+#include <softPwm.h>   // Include softPwm.h
+#include <termios.h>   // For terminal control
+#include <unistd.h>    // For POSIX API
+#include <fcntl.h>     // For file control options
+#include <poll.h>      // For polling input
 
+#include "initwiringpi.h" // Include our wiringPi initializer
 #include "robotcontrol.h"
 
 // Global pointer to RobotControl for signal handling
@@ -81,9 +83,6 @@ void signalHandler(int signal)
 
     // Reset terminal
     reset_terminal();
-
-    // Terminate pigpio library
-    gpioTerminate();
 
     QCoreApplication::quit();
 }
@@ -267,7 +266,7 @@ void keyboardThread() {
                         updateStatus("Slow mode ON");
                         break;
 
-                    // Movement keys - key down events
+                        // Movement keys - key down events
                     case 'w': // Forward
                         keyStates['w'].pressed = true;
                         keyStates['w'].lastPress = currentTime;
@@ -468,12 +467,12 @@ int main(int argc, char *argv[])
     // Process command line arguments
     parser.process(app);
 
-    // Initialize pigpio before creating the RobotControl instance
-    if (gpioInitialise() < 0) {
-        std::cerr << "Failed to initialize pigpio! Exiting." << std::endl;
+    // Initialize wiringPi before creating the RobotControl instance
+    if (initWiringPi() < 0) {
+        std::cerr << "Failed to initialize wiringPi! Exiting." << std::endl;
         return 1;
     }
-    std::cout << "pigpio initialized successfully" << std::endl;
+    std::cout << "wiringPi initialized successfully" << std::endl;
 
     // Create the robot control instance
     RobotControl robotControl;
@@ -510,7 +509,6 @@ int main(int argc, char *argv[])
     // Initialize robot control
     if (!robotControl.initialize()) {
         std::cerr << "Failed to initialize robot control! Exiting." << std::endl;
-        gpioTerminate();
         return 1;
     }
 
@@ -543,9 +541,6 @@ int main(int argc, char *argv[])
 
     // Make sure we reset the terminal
     reset_terminal();
-
-    // Terminate pigpio before exiting
-    gpioTerminate();
 
     return result;
 }
