@@ -31,6 +31,7 @@ else: unix:!android: target.path = /opt/$${TARGET}/bin
 # sudo apt install qt6-base-dev qt6-base-dev-tools
 # sudo ln -sf /usr/lib/qt6/bin/qmake6 /usr/local/bin/qmake
 # sudo apt install libi2c-dev i2c-tools
+# sudo apt-get install libpigpio-dev
 # git clone https://github.com/WiringPi/WiringPi.git
 # cd WiringPi
 # sudo ./build
