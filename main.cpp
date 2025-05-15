@@ -2,7 +2,7 @@
 #include <QCommandLineParser>
 #include <QTimer>
 #include <iostream>
-#include <sstream>
+#include <sstream>   // Add this for std::stringstream
 #include <csignal>
 #include <thread>
 #include <atomic>
@@ -163,24 +163,31 @@ void debugLog(const std::string& message) {
     std::cout << std::flush;
 }
 
-// Function to update joystick values based on key states
-void updateJoystickFromKeys(RobotControl* robotControl) {
+// Function to update keyboard-based movement through the unified moveRobot function
+void updateMovementFromKeys(RobotControl* robotControl) {
     // Default to neutral position
-    int16_t x_value = 0;
-    int16_t y_value = 0;
+    float forward = 0.0f; // Forward/backward
+    float lateral = 0.0f; // Left/right (not used in balance robot)
+    float yaw = 0.0f;     // Rotation
+    float vertical = 0.0f; // Up/down (not used in balance robot)
+    quint16 buttons = 0;   // Button states
 
-    // Check if keys are pressed and adjust joystick values
-    if (keyStates['w'].pressed) y_value += 70;   // Forward - higher value
-    if (keyStates['s'].pressed) y_value -= 70;   // Backward - higher value
-    if (keyStates['a'].pressed) x_value -= 70;   // Left - higher value
-    if (keyStates['d'].pressed) x_value += 70;   // Right - higher value
+    // Check if keys are pressed and adjust values - use constant 0.5 (50%) for all movements
+    if (keyStates['w'].pressed) forward += 0.5f;   // Forward - 50% throttle
+    if (keyStates['s'].pressed) forward -= 0.5f;   // Backward - 50% throttle
+    if (keyStates['a'].pressed) yaw -= 0.5f;       // Left turn - 50% throttle
+    if (keyStates['d'].pressed) yaw += 0.5f;       // Right turn - 50% throttle
 
-    // Apply the calculated joystick values
-    robotControl->setJoystickInput(x_value, y_value);
+    // Set button states based on other keys if needed
+    if (keyStates['h'].pressed) buttons |= 0x0001; // Fast mode
+    if (keyStates['y'].pressed) buttons |= 0x0002; // Normal mode
 
-    // Debug output for joystick values
+    // Apply the movement values using the new moveRobot function
+    robotControl->moveRobot(forward, lateral, yaw, vertical, buttons);
+
+    // Debug output for movement values
     std::stringstream ss;
-    ss << "Joystick values: X=" << x_value << ", Y=" << y_value;
+    ss << "Movement: Forward=" << forward << ", Yaw=" << yaw;
     debugLog(ss.str());
 }
 
@@ -197,6 +204,8 @@ void keyboardThread() {
     keyStates['a'] = {false, std::chrono::steady_clock::now()};
     keyStates['s'] = {false, std::chrono::steady_clock::now()};
     keyStates['d'] = {false, std::chrono::steady_clock::now()};
+    keyStates['h'] = {false, std::chrono::steady_clock::now()};
+    keyStates['y'] = {false, std::chrono::steady_clock::now()};
 
     // Polling structure for keyboard input
     struct pollfd fds[1];
@@ -207,7 +216,7 @@ void keyboardThread() {
     updateStatus("Ready - Press p to power on. Press and release WASD for movement.");
 
     // Define key timeout (how long a key is considered "pressed" after last detection)
-    const auto KEY_TIMEOUT = std::chrono::milliseconds(80); // Shorter timeout
+    const auto KEY_TIMEOUT = std::chrono::milliseconds(500); // Longer timeout - 500ms
 
     char ch;
     while (g_running) {
@@ -237,30 +246,35 @@ void keyboardThread() {
                         keyStates['a'].pressed = false;
                         keyStates['s'].pressed = false;
                         keyStates['d'].pressed = false;
-                        updateJoystickFromKeys(g_robotControl);
+                        updateMovementFromKeys(g_robotControl);
                         updateStatus("Powered OFF");
                         break;
 
                     case 'h': // Fast mode on
+                        keyStates['h'].pressed = true;
+                        keyStates['h'].lastPress = currentTime;
+                        keyStates['y'].pressed = false;
+                        updateMovementFromKeys(g_robotControl);
                         g_robotControl->setFastMode(true);
                         updateStatus("Fast mode ON");
                         break;
                     case 'y': // Slow mode (fast mode off)
+                        keyStates['y'].pressed = true;
+                        keyStates['y'].lastPress = currentTime;
+                        keyStates['h'].pressed = false;
+                        updateMovementFromKeys(g_robotControl);
                         g_robotControl->setFastMode(false);
                         updateStatus("Slow mode ON");
                         break;
 
-                        // Movement keys - key down events
+                    // Movement keys - key down events
                     case 'w': // Forward
                         keyStates['w'].pressed = true;
                         keyStates['w'].lastPress = currentTime;
                         // Make sure other opposite directional key is released
                         keyStates['s'].pressed = false;
-                        updateJoystickFromKeys(g_robotControl);
-                        // Apply immediately with stronger force for instant response
-                        g_robotControl->setJoystickInput(0, 80); // Stronger initial push
-                        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                        updateJoystickFromKeys(g_robotControl); // Return to normal value
+                        // Use consistent power level - no initial boost
+                        updateMovementFromKeys(g_robotControl);
                         updateStatus("Moving FORWARD");
                         break;
                     case 'a': // Left
@@ -268,11 +282,8 @@ void keyboardThread() {
                         keyStates['a'].lastPress = currentTime;
                         // Make sure other opposite directional key is released
                         keyStates['d'].pressed = false;
-                        updateJoystickFromKeys(g_robotControl);
-                        // Apply immediately with stronger force for instant response
-                        g_robotControl->setJoystickInput(-80, 0); // Stronger initial push
-                        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                        updateJoystickFromKeys(g_robotControl); // Return to normal value
+                        // Use consistent power level - no initial boost
+                        updateMovementFromKeys(g_robotControl);
                         updateStatus("Turning LEFT");
                         break;
                     case 'd': // Right
@@ -280,11 +291,8 @@ void keyboardThread() {
                         keyStates['d'].lastPress = currentTime;
                         // Make sure other opposite directional key is released
                         keyStates['a'].pressed = false;
-                        updateJoystickFromKeys(g_robotControl);
-                        // Apply immediately with stronger force for instant response
-                        g_robotControl->setJoystickInput(80, 0); // Stronger initial push
-                        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                        updateJoystickFromKeys(g_robotControl); // Return to normal value
+                        // Use consistent power level - no initial boost
+                        updateMovementFromKeys(g_robotControl);
                         updateStatus("Turning RIGHT");
                         break;
                     case 's': // Backward
@@ -292,11 +300,8 @@ void keyboardThread() {
                         keyStates['s'].lastPress = currentTime;
                         // Make sure other opposite directional key is released
                         keyStates['w'].pressed = false;
-                        updateJoystickFromKeys(g_robotControl);
-                        // Apply immediately with stronger force for instant response
-                        g_robotControl->setJoystickInput(0, -80); // Stronger initial push
-                        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                        updateJoystickFromKeys(g_robotControl); // Return to normal value
+                        // Use consistent power level - no initial boost
+                        updateMovementFromKeys(g_robotControl);
                         updateStatus("Moving BACKWARD");
                         break;
 
@@ -305,7 +310,7 @@ void keyboardThread() {
                         keyStates['a'].pressed = false;
                         keyStates['s'].pressed = false;
                         keyStates['d'].pressed = false;
-                        updateJoystickFromKeys(g_robotControl);
+                        g_robotControl->moveRobot(0.0f, 0.0f, 0.0f, 0.0f, 0);
                         updateStatus("STOPPED");
                         break;
 
@@ -363,25 +368,29 @@ void keyboardThread() {
                                 case 'A': // Up arrow - forward
                                     keyStates['w'].pressed = true;
                                     keyStates['w'].lastPress = currentTime;
-                                    updateJoystickFromKeys(g_robotControl);
+                                    keyStates['s'].pressed = false;
+                                    updateMovementFromKeys(g_robotControl);
                                     updateStatus("Moving FORWARD (Up arrow)");
                                     break;
                                 case 'B': // Down arrow - backward
                                     keyStates['s'].pressed = true;
                                     keyStates['s'].lastPress = currentTime;
-                                    updateJoystickFromKeys(g_robotControl);
+                                    keyStates['w'].pressed = false;
+                                    updateMovementFromKeys(g_robotControl);
                                     updateStatus("Moving BACKWARD (Down arrow)");
                                     break;
                                 case 'C': // Right arrow - right
                                     keyStates['d'].pressed = true;
                                     keyStates['d'].lastPress = currentTime;
-                                    updateJoystickFromKeys(g_robotControl);
+                                    keyStates['a'].pressed = false;
+                                    updateMovementFromKeys(g_robotControl);
                                     updateStatus("Turning RIGHT (Right arrow)");
                                     break;
                                 case 'D': // Left arrow - left
                                     keyStates['a'].pressed = true;
                                     keyStates['a'].lastPress = currentTime;
-                                    updateJoystickFromKeys(g_robotControl);
+                                    keyStates['d'].pressed = false;
+                                    updateMovementFromKeys(g_robotControl);
                                     updateStatus("Turning LEFT (Left arrow)");
                                     break;
                                 }
@@ -395,32 +404,37 @@ void keyboardThread() {
 
         // Check for key timeouts (key release detection)
         bool keyStateChanged = false;
-        for (auto& key : {'w', 'a', 's', 'd'}) {
-            // If key was pressed and hasn't been seen recently, consider it released
-            if (keyStates[key].pressed) {
-                auto elapsedTime = currentTime - keyStates[key].lastPress;
-                if (elapsedTime > KEY_TIMEOUT) {
-                    keyStates[key].pressed = false;
-                    keyStateChanged = true;
-                    std::stringstream ss;
-                    ss << "Key '" << key << "' released (timeout)";
-                    debugLog(ss.str());
+
+        // Only check for timeouts if there was no key press this iteration
+        if (poll_result <= 0 || !(fds[0].revents & POLLIN)) {
+            for (auto& key : {'w', 'a', 's', 'd'}) {
+                // If key was pressed and hasn't been seen recently, consider it released
+                if (keyStates[key].pressed) {
+                    auto elapsedTime = currentTime - keyStates[key].lastPress;
+                    if (elapsedTime > KEY_TIMEOUT) {
+                        keyStates[key].pressed = false;
+                        keyStateChanged = true;
+                        std::stringstream ss;
+                        ss << "Key '" << key << "' released (timeout)";
+                        debugLog(ss.str());
+                    }
+                }
+            }
+
+            // If any key state changed, update movement values
+            if (keyStateChanged) {
+                updateMovementFromKeys(g_robotControl);
+                // If all keys are released, update status
+                if (!keyStates['w'].pressed && !keyStates['a'].pressed &&
+                    !keyStates['s'].pressed && !keyStates['d'].pressed) {
+                    updateStatus("Stopped (keys released)");
                 }
             }
         }
 
-        // If any key state changed, update joystick values
-        if (keyStateChanged) {
-            updateJoystickFromKeys(g_robotControl);
-            // If all keys are released, update status
-            if (!keyStates['w'].pressed && !keyStates['a'].pressed &&
-                !keyStates['s'].pressed && !keyStates['d'].pressed) {
-                updateStatus("Stopped (keys released)");
-            }
-        }
-
         // Small delay to prevent CPU hogging
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        // Use a shorter delay to improve responsiveness
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
 }
 
@@ -510,6 +524,9 @@ int main(int argc, char *argv[])
         updateStatus("Auto-powering on in 3 seconds...");
         QTimer::singleShot(3000, &robotControl, &RobotControl::powerOn);
     }
+
+    // Print initial menu
+    printMenu();
 
     // Start keyboard input thread
     std::thread inputThread(keyboardThread);

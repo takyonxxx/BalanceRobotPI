@@ -11,7 +11,7 @@
 // External libraries
 #include "i2cdev.h"
 #include "mpu6050.h"
-// No wiringPi include - using pigpio instead
+#include <wiringPi.h>
 
 class RobotControl : public QObject
 {
@@ -29,6 +29,10 @@ public:
     void powerOff();
     void setFastMode(bool enable);
     void setJoystickInput(int16_t x, int16_t y);
+
+    // Unified movement control function
+    bool moveRobot(float forward, float lateral, float yaw, float vertical, quint16 buttons);
+
     void testAllEscs(int durationSeconds);
     void stopAllEscs();
     void directEscControl(int16_t rightThrottle, int16_t leftThrottle);
@@ -45,8 +49,8 @@ public:
     float getLoopTime() const;
 
     // ESC PWM Pins - Made public so they can be directly referenced
-    static constexpr int PIN_ESC_1 = 18;  // First ESC PWM Pin (GPIO 18, Pin 12)
-    static constexpr int PIN_ESC_2 = 12;  // Second ESC PWM Pin (GPIO 12, Pin 32)
+    static constexpr int PIN_ESC_1 = 18;  // First ESC PWM Pin (GPIO 18, Pin 12) - Hardware PWM capable
+    static constexpr int PIN_ESC_2 = 12;  // Second ESC PWM Pin (GPIO 12, Pin 32) - Hardware PWM capable
 
 private slots:
     void mainLoop();             // Main control loop
@@ -65,6 +69,7 @@ private:
 
     // PWM Configuration for ESC
     static constexpr int ESC_PWM_FREQUENCY = 50;   // 50 Hz (20ms period) for standard ESCs
+    static constexpr int ESC_PWM_RANGE = 2000;     // Using a range of 2000 (makes math easy)
     static constexpr int ESC_PWM_MIN = 1000;       // Minimum pulse width (1000μs = 1ms)
     static constexpr int ESC_PWM_NEUTRAL = 1500;   // Neutral pulse width (1500μs = 1.5ms)
     static constexpr int ESC_PWM_MAX = 2000;       // Maximum pulse width (2000μs = 2ms)
@@ -90,6 +95,7 @@ private:
     void calculatePid();
     void batteryTest();
     float readBatteryVoltage();
+    void debugLog(const std::string& message);
 
     // Helper method to read MPU6050 data
     bool readMpuData(int16_t &accelX, int16_t &accelY, int16_t &gyroZ);

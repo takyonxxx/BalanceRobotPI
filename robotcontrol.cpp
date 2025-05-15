@@ -6,7 +6,7 @@
 #include <chrono>
 #include <fcntl.h>
 #include <unistd.h>
-#include <pigpio.h>  // Include pigpio library for better PWM control
+#include <pigpio.h>  // Include pigpio library
 
 RobotControl::RobotControl(QObject *parent) : QObject(parent),
     power(false),
@@ -90,12 +90,14 @@ bool RobotControl::initialize()
 void RobotControl::powerOn()
 {
     power = true;
+    moveRobot(0.0f, 0.0f, 0.0f, 0.0f, 0);
     std::cout << "Robot powered on" << std::endl;
 }
 
 void RobotControl::powerOff()
 {
     power = false;
+    moveRobot(0.0f, 0.0f, 0.0f, 0.0f, 0);
     stopAllEscs();
     std::cout << "Robot powered off" << std::endl;
 }
@@ -127,9 +129,68 @@ void RobotControl::setJoystickInput(int16_t x, int16_t y)
     }
 }
 
+// Unified robot movement control
+bool RobotControl::moveRobot(float forward, float lateral, float yaw, float vertical, quint16 buttons)
+{
+    // Ensure power is on
+    if (!power) {
+        debugLog("Cannot move robot: Power is off");
+        return false;
+    }
+
+    // Ensure battery is not discharged
+    if (batteryDischarged) {
+        debugLog("Cannot move robot: Battery is discharged");
+        return false;
+    }
+
+    // Convert float values (-1.0 to 1.0) to throttle values (-100 to 100)
+    int16_t forwardThrottle = static_cast<int16_t>(forward * 100.0f);
+    int16_t lateralThrottle = static_cast<int16_t>(lateral * 100.0f);
+    int16_t yawThrottle = static_cast<int16_t>(yaw * 100.0f);
+
+    // Constrain values to valid range
+    forwardThrottle = std::max(static_cast<int16_t>(-100), std::min(static_cast<int16_t>(100), forwardThrottle));
+    lateralThrottle = std::max(static_cast<int16_t>(-100), std::min(static_cast<int16_t>(100), lateralThrottle));
+    yawThrottle = std::max(static_cast<int16_t>(-100), std::min(static_cast<int16_t>(100), yawThrottle));
+
+    // For balance robot, we mostly care about forward/backward and rotation (yaw)
+    // We'll use the yaw to adjust the differential between left and right motors
+
+    // Calculate right and left throttle values
+    int16_t rightThrottle = forwardThrottle - yawThrottle;
+    int16_t leftThrottle = forwardThrottle + yawThrottle;
+
+    // Constrain final throttle values
+    rightThrottle = std::max(static_cast<int16_t>(-100), std::min(static_cast<int16_t>(100), rightThrottle));
+    leftThrottle = std::max(static_cast<int16_t>(-100), std::min(static_cast<int16_t>(100), leftThrottle));
+
+    // Log movement if verbose output is enabled
+    if (verboseOutput) {
+        std::cout << "Moving robot: Forward=" << forwardThrottle
+                  << ", Yaw=" << yawThrottle
+                  << ", Right=" << rightThrottle
+                  << ", Left=" << leftThrottle
+                  << std::endl;
+    }
+
+    // Set ESC PWM values
+    setEscPwm(rightThrottle, PIN_ESC_1);
+    setEscPwm(leftThrottle, PIN_ESC_2);
+
+    // Process button inputs if needed
+    if (buttons & 0x0001) { // Example: Button 1 - Fast mode
+        setFastMode(true);
+    }
+    if (buttons & 0x0002) { // Example: Button 2 - Normal mode
+        setFastMode(false);
+    }
+
+    return true;
+}
+
 void RobotControl::testAllEscs(int durationSeconds)
 {
-    verboseOutput = true;  // Enable verbose output during testing
     std::cout << "Testing ESCs for " << durationSeconds << " seconds" << std::endl;
 
     // Get current time
@@ -162,7 +223,6 @@ void RobotControl::testAllEscs(int durationSeconds)
     // Set ESCs to neutral when done
     stopAllEscs();
     std::cout << "ESC test complete" << std::endl;
-    verboseOutput = false;
 }
 
 void RobotControl::stopAllEscs()
@@ -207,7 +267,7 @@ int RobotControl::mapThrottleToPwm(int16_t throttle)
 
 void RobotControl::setEscPwm(int16_t throttle, int escPin)
 {
-    // Convert throttle to pulse width in microseconds (1000-2000μs range)
+    // Convert throttle to pulse width in microseconds
     int pulseWidth = mapThrottleToPwm(throttle);
 
     // Using our range of 20000, the pulse width value can be directly used as dutycycle
@@ -227,7 +287,6 @@ void RobotControl::setEscPwm(int16_t throttle, int escPin)
 float RobotControl::getBatteryVoltage() const
 {
     return batteryVoltage;
-
 }
 
 bool RobotControl::isBatteryDischarged() const
@@ -372,7 +431,7 @@ void RobotControl::initMpu6050()
 
 void RobotControl::calibrateGyro()
 {
-    constexpr int numSamples = 1024;
+    constexpr int numSamples = 255;
     int32_t gyroZOffsetSum = 0;
     int16_t accelX, accelY, gyroZ;
 
@@ -390,7 +449,7 @@ void RobotControl::calibrateGyro()
         gpioWrite(PIN_LED, i % 2);
 
         // Delay to get stable readings
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
 
     // Calculate average
@@ -596,4 +655,12 @@ float RobotControl::readBatteryVoltage()
 
     // Fixed voltage for testing (11.1V battery - 3S LiPo)
     return 11.1f;
+}
+
+// Helper function to log debug messages
+void RobotControl::debugLog(const std::string& message)
+{
+    if (verboseOutput) {
+        std::cout << "RobotControl: " << message << std::endl;
+    }
 }
