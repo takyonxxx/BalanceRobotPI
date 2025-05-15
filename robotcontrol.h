@@ -103,7 +103,6 @@ private:
     bool power;                   // Robot power state
     bool vertical;                // Is robot vertical enough to run
     bool batteryDischarged;       // Battery state
-    bool verboseOutput;           // Controls console output
 
     float robotAngle;             // Current robot angle
     float robotSpeed;             // Current robot speed
@@ -129,6 +128,8 @@ private:
     bool gyroFilterEnabled;
     std::array<int32_t, 32> gyroZFilter;
     uint8_t filterCount;
+
+    bool verboseOutput;           // Controls console output
 };
 
 #endif // ROBOTCONTROL_H
