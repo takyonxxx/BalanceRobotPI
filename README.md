@@ -4,7 +4,7 @@ A self-balancing robot project powered by Raspberry Pi 5, featuring precise moto
 
 ## 3D Models
 
-You can view and interact with the 3D models directly in GitHub:
+You can view and interact with the 3D models directly in GitHub. The 2208 brushless gimbal motors will be placed inside the wheels for a compact, integrated design:
 
 - [View BalanceRobot Frame STL](https://github.com/takyonxxx/BalanceRobotPI/blob/main/stl/F2BNOQ7J839QTHL.stl)
 - [View BalanceRobot Wheel STL](https://github.com/takyonxxx/BalanceRobotPI/blob/main/stl/FDFVE76J839QTI2.stl)
@@ -88,8 +88,24 @@ The project is built using Qt/C++ for the Raspberry Pi control system and featur
 1. Install required dependencies:
 
 ```bash
-sudo apt update
-sudo apt install git cmake qtbase5-dev wiringpi libi2c-dev
+# Install build essentials
+sudo apt-get install build-essential devscripts
+
+# Install Qt6 development packages
+sudo apt install qt6-base-dev qt6-base-dev-tools
+sudo apt install qt6-connectivity-dev libqt6bluetooth6 qt6-base-dev
+
+# Setup qmake symlink
+sudo ln -sf /usr/lib/qt6/bin/qmake6 /usr/local/bin/qmake
+
+# Install I2C development packages
+sudo apt install libi2c-dev i2c-tools
+
+# Install WiringPi from source
+git clone https://github.com/WiringPi/WiringPi.git
+cd WiringPi
+sudo ./build
+cd ..
 ```
 
 2. Clone the repository:
