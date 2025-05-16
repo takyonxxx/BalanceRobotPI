@@ -7,8 +7,9 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <pthread.h>
-#include <wiringPi.h>  // Replace pigpio with wiringPi
-#include <softPwm.h>   // Add softPwm for software PWM
+#include <wiringPi.h>
+#include <softPwm.h>
+#include "initwiringpi.h"
 
 RobotControl::RobotControl(QObject *parent) : QObject(parent),
     power(false),
@@ -31,18 +32,39 @@ RobotControl::RobotControl(QObject *parent) : QObject(parent),
     gyroZOffset(0),
     gyroFilterEnabled(true),
     filterCount(0),
-    verboseOutput(false),
     pwmRunning(false),
     esc1PulseWidth(ESC_PWM_NEUTRAL),
-    esc2PulseWidth(ESC_PWM_NEUTRAL)
+    esc2PulseWidth(ESC_PWM_NEUTRAL),
+    verboseOutput(false)
 {
     // Initialize the gyro filter array to zero
     gyroZFilter.fill(0);
+
+    // Initialize wiringPi before creating the RobotControl instance
+    if (initWiringPi() < 0) {
+        std::cerr << "Failed to initialize wiringPi! Exiting." << std::endl;
+        return;
+    }
 
     // Setup timers
     connect(&mainLoopTimer, &QTimer::timeout, this, &RobotControl::mainLoop);
     connect(&batteryTimer, &QTimer::timeout, this, &RobotControl::batteryCheckTimer);
     connect(&telemetryTimer, &QTimer::timeout, this, &RobotControl::sendDataTimer);
+
+    gattServer = GattServer::getInstance();
+    if (gattServer)
+    {
+        qDebug() << "Starting gatt service";
+        QObject::connect(gattServer, &GattServer::connectionState, this, &RobotControl::onConnectionStatedChanged);
+        QObject::connect(gattServer, &GattServer::dataReceived, this, &RobotControl::onDataReceived);
+        gattServer->startBleService();
+    }
+
+    // Initialize robot control
+    if (!initialize()) {
+        std::cerr << "Failed to initialize robot control! Exiting." << std::endl;
+        return;
+    }
 }
 
 RobotControl::~RobotControl()
@@ -63,6 +85,8 @@ RobotControl::~RobotControl()
     if (pwmThread2.joinable()) {
         pwmThread2.join();
     }
+
+    delete gattServer;
 }
 
 void RobotControl::pwmGeneratorThread(int pin, std::atomic<int>& pulseWidth)
@@ -742,3 +766,306 @@ void RobotControl::debugLog(const std::string& message)
         std::cout << "RobotControl: " << message << std::endl;
     }
 }
+
+void RobotControl::onConnectionStatedChanged(bool state)
+{
+}
+
+void RobotControl::createMessage(uint8_t msgId, uint8_t rw, QByteArray payload, QByteArray *result)
+{
+    // Safety check
+    if (!result) {
+        qDebug() << "Error: Result pointer is null in createMessage";
+        return;
+    }
+
+    // Clear the result array first to prevent appending to existing data
+    result->clear();
+
+    // Make sure payload size doesn't exceed buffer
+    if (payload.size() > MaxPayload) {
+        qDebug() << "Warning: Payload size exceeds maximum, truncating";
+        payload = payload.left(MaxPayload);
+    }
+
+    // Create buffer with zero initialization
+    uint8_t buffer[MaxPayload + 8] = {0};
+    uint8_t command = msgId;
+
+    // Create the packet
+    int len = message.create_pack(rw, command, payload, buffer);
+
+    // Safety check on length
+    if (len <= 0 || len > (MaxPayload + 8)) {
+        qDebug() << "Error: Invalid message length in createMessage:" << len;
+        return;
+    }
+
+    // Copy buffer to result QByteArray
+    for (int i = 0; i < len; i++) {
+        result->append(static_cast<char>(buffer[i]));
+    }
+}
+
+void RobotControl::requestData(uint8_t command)
+{
+    QByteArray payload;
+    QByteArray sendData;
+    createMessage(command, mRead, payload, &sendData);
+    gattServer->writeValue(sendData);
+}
+
+void RobotControl::sendData(uint8_t command, uint8_t value)
+{
+    QByteArray payload(1, 0);  // Initialize with size 1, value 0
+    // Now set the value
+    payload[0] = value;
+    QByteArray sendData;
+    createMessage(command, mWrite, payload, &sendData);
+    gattServer->writeValue(sendData);
+}
+
+void RobotControl::sendFloat(uint8_t command, float value)
+{
+    // Create a QByteArray to hold the float (4 bytes)
+    QByteArray payload(sizeof(float), 0);
+
+    // Convert float to bytes
+    // This creates a platform-independent representation of the float
+    const char* valueBytes = reinterpret_cast<const char*>(&value);
+
+    // Copy the bytes to the payload
+    for (size_t i = 0; i < sizeof(float); i++) {
+        payload[i] = valueBytes[i];
+    }
+
+    // Create and send the message
+    QByteArray sendData;
+    createMessage(command, mWrite, payload, &sendData);
+    gattServer->writeValue(sendData);
+}
+
+void RobotControl::sendString(uint8_t command, QString value)
+{
+    QByteArray sendData;
+    QByteArray bytedata;
+    bytedata = value.toLocal8Bit();
+    createMessage(command, mWrite, bytedata, &sendData);
+    gattServer->writeValue(sendData);
+}
+
+bool RobotControl::parseMessage(QByteArray *data, uint8_t &command, QByteArray &value, uint8_t &rw)
+{
+    // Safety checks
+    if (!data || data->isEmpty()) {
+        qDebug() << "Error: Invalid data in parseMessage";
+        return false;
+    }
+
+    // Clear the output value array
+    value.clear();
+
+    // Check minimum packet size
+    if (data->size() < 4) {
+        qDebug() << "Error: Packet too small:" << data->size();
+        return false;
+    }
+
+    // Log raw data for debugging
+    QString hexDump;
+    for (int i = 0; i < data->size(); i++) {
+        hexDump += QString("%1 ").arg((unsigned char)data->at(i), 2, 16, QChar('0'));
+    }
+
+    // Initialize the message struct
+    MessagePack parsedMessage = {0};
+
+    // Parse the message
+    uint8_t* dataToParse = reinterpret_cast<uint8_t*>(data->data());
+
+    if (message.parse(dataToParse, static_cast<uint8_t>(data->size()), &parsedMessage)) {
+        command = parsedMessage.command;
+        rw = parsedMessage.rw;
+
+        // Safety check on parsed length
+        if (parsedMessage.len > MaxPayload) {
+            qDebug() << "Error: Invalid parsed length:" << parsedMessage.len;
+            return false;
+        }
+
+        // Copy data safely
+        for (int i = 0; i < parsedMessage.len; i++) {
+            value.append(static_cast<char>(parsedMessage.data[i]));
+        }
+
+        return true;
+    }
+
+    qDebug() << "Failed to parse message";
+    return false;
+}
+
+void RobotControl::onDataReceived(QByteArray data)
+{
+    // Debug için: Alınan veriyi hexadecimal olarak göster
+    QString hexDump;
+    for (int i = 0; i < data.size(); i++) {
+        hexDump += QString("%1 ").arg((unsigned char)data.at(i), 2, 16, QChar('0'));
+    }
+
+    try {
+        // Mesajı ayrıştır
+        uint8_t parsedCommand = 0;
+        uint8_t rw = 0;
+        QByteArray parsedValue;
+        if (!parseMessage(&data, parsedCommand, parsedValue, rw)) {
+            qDebug() << "Failed to parse message, skipping processing";
+            return;
+        }
+
+        // İstek türüne göre işle
+        if (rw == mRead) {
+            // Okuma istekleri - mevcut değerleri gönder
+            switch (parsedCommand) {
+            case mPP:
+                sendFloat(mPP, KP);
+                break;
+            case mPD:
+                sendFloat(mPD, KD);
+                break;
+            case mPC:
+                sendFloat(mPC, KC);
+                break;
+            case mPV:
+                sendFloat(mPV, KV);
+                break;
+            case mSD:
+                sendFloat(mSD, KSD);  // Burada mAC yerine mSD olmalı
+                break;
+            case mAC:
+                sendFloat(mAC, KAC);
+                break;
+            case mArmed:
+                sendData(mArmed, power);
+                break;
+            default:
+                qDebug() << "Unknown command in read operation:" << parsedCommand;
+                break;
+            }
+        } else if (rw == mWrite) {
+            // Yazma istekleri - gelen değerlerle değişkenleri güncelle
+
+            // Float parametre komutları
+            if (parsedCommand == mPP || parsedCommand == mPD || parsedCommand == mPC ||
+                parsedCommand == mPV || parsedCommand == mSD || parsedCommand == mAC ) {
+
+                // Byte array'i float'a dönüştür
+                if (parsedValue.size() >= sizeof(float)) {
+                    float floatValue;
+                    memcpy(&floatValue, parsedValue.constData(), sizeof(float));
+
+                    // Float değeri ilgili parametreye ata
+                    switch (parsedCommand) {
+                    case mPP:
+                        KP = floatValue;
+                        qDebug() << "Updated KP to:" << KP;
+                        break;
+                    case mPD:
+                        KD = floatValue;
+                        qDebug() << "Updated KD to:" << KD;
+                        break;
+                    case mPC:
+                        KC = floatValue;
+                        qDebug() << "Updated KC to:" << KC;
+                        break;
+                    case mPV:
+                        KV = floatValue;
+                        qDebug() << "Updated KV to:" << KV;
+                        break;
+                    case mSD:
+                        KSD = floatValue;
+                        qDebug() << "Updated KSD to:" << KSD;
+                        break;
+                    case mAC:
+                        KAC = floatValue;
+                        qDebug() << "Updated KAC to:" << KAC;
+                        break;
+                    }
+                } else {
+                    qDebug() << "Error: Not enough data for float value. Expected:"
+                             << sizeof(float) << "bytes, got:" << parsedValue.size() << "bytes";
+                }
+            }
+            // Boolean değer komutu
+            else if (parsedCommand == mArmed || parsedCommand == mDisArmed) {
+                if (parsedCommand == mArmed) {
+                    power = true;
+                    powerOn();
+                } else {
+                    power = false;
+                    powerOff();
+                }
+                sendData(mArmed, power);
+            }
+            else if (parsedCommand == mSpeak) {
+                auto soundText = QString(parsedValue.data());
+                qDebug() << "Speak command received:" << soundText;
+            }
+            // Hareket komutları
+            // Hareket komutları
+            else if (parsedCommand == mForward || parsedCommand == mBackward ||
+                     parsedCommand == mLeft || parsedCommand == mRight) {
+                // Değeri 0-100 aralığından yüzde olarak al
+                int value = parsedValue.isEmpty() ? 0 : static_cast<unsigned char>(parsedValue.at(0));
+
+                // Değeri 0-1 aralığına normalize et
+                float normalizedValue = value / 100.0f;
+
+                // Hareket parametreleri
+                float forward = 0.0f;
+                float lateral = 0.0f; // Balance robot'ta genellikle kullanılmaz
+                float yaw = 0.0f;
+                float vertical = 0.0f; // Balance robot'ta genellikle kullanılmaz
+                quint16 buttons = 0;
+
+                // Komuta göre hareket parametrelerini ayarla
+                switch (parsedCommand) {
+                case mForward:
+                    forward = normalizedValue;
+                    qDebug() << "Moving forward with value:" << value << "(" << normalizedValue << ")";
+                    break;
+                case mBackward:
+                    forward = -normalizedValue;
+                    qDebug() << "Moving backward with value:" << value << "(" << -normalizedValue << ")";
+                    break;
+                case mLeft:
+                    yaw = -normalizedValue;
+                    qDebug() << "Turning left with value:" << value << "(" << -normalizedValue << ")";
+                    break;
+                case mRight:
+                    yaw = normalizedValue;
+                    qDebug() << "Turning right with value:" << value << "(" << normalizedValue << ")";
+                    break;
+                }
+
+                // Robotu hareket ettir
+                bool success = moveRobot(forward, lateral, yaw, vertical, buttons);
+
+                if (!success) {
+                    qDebug() << "Failed to move robot. Power might be off or battery discharged.";
+                }
+            }
+            // Bilinmeyen komutlar
+            else {
+                qDebug() << "Unknown command in write operation:" << parsedCommand;
+            }
+        } else {
+            qDebug() << "Unknown request type (neither read nor write):" << rw;
+        }
+    } catch (const std::exception& e) {
+        qDebug() << "Exception during message processing:" << e.what();
+    } catch (...) {
+        qDebug() << "Unknown exception during message processing";
+    }
+}
+

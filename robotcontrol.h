@@ -14,7 +14,9 @@
 #include "i2cdev.h"
 #include "mpu6050.h"
 #include <wiringPi.h>
-#include <softPwm.h>  // Include softPwm header
+#include <softPwm.h>
+#include "gattserver.h"
+#include "message.h"
 
 class RobotControl : public QObject
 {
@@ -59,6 +61,8 @@ private slots:
     void mainLoop();             // Main control loop
     void batteryCheckTimer();    // Battery check timer
     void sendDataTimer();        // Send telemetry data
+    void onConnectionStatedChanged(bool state);
+    void onDataReceived(QByteArray data);
 
 signals:
     void telemetryData(float batteryVoltage, float loopTime);
@@ -82,10 +86,13 @@ private:
     static constexpr float RESET_VOLTAGE = 3.0f * 3.7f;     // 3 cells at 3.7V each
 
     // Balance Robot PID Constants
-    static constexpr float KC = 0.0002f;  // Position feedback gain
-    static constexpr float KV = 0.02f;    // Velocity feedback gain
-    static constexpr float KP = 0.2f;     // Angle gain
-    static constexpr float KD = 0.025f / (2.0f * 0.004f); // Angle velocity gain
+    float KC = 0.0002f;  // Position feedback gain
+    float KV = 0.02f;    // Velocity feedback gain
+    float KP = 0.2f;     // Angle gain
+    float KD = 0.025f / (2.0f * 0.004f); // Angle velocity gain
+    float KAC = 0.0f;
+    float KSD = 0.0f;
+
     static constexpr float PID_OUT_MAX = 100.0f;
     static constexpr float PID_OUT_MIN = -100.0f;
     static constexpr float GYRO_WEIGHT = 0.996f;
@@ -105,6 +112,16 @@ private:
 
     // Helper method to read MPU6050 data
     bool readMpuData(int16_t &accelX, int16_t &accelY, int16_t &gyroZ);
+
+    void createMessage(uint8_t msgId, uint8_t rw, QByteArray payload, QByteArray *result);
+    bool parseMessage(QByteArray *data, uint8_t &command, QByteArray &value, uint8_t &rw);
+    void requestData(uint8_t command);
+    void sendData(uint8_t command, uint8_t value);
+    void sendFloat(uint8_t command, float value);
+    void sendString(uint8_t command, QString value);
+
+    GattServer *gattServer = nullptr;
+    Message message;
 
     // Sensor and state variables
     MPU6050 mpu;                  // MPU6050 instance

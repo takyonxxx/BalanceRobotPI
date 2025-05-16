@@ -1,17 +1,21 @@
-QT += core
+QT += core bluetooth
 QT -= gui
 CONFIG += c++17 cmdline
 CONFIG -= app_bundle
 TARGET = BalanceRobot
 TEMPLATE = app
 SOURCES += \
+        gattserver.cpp \
         i2cdev.cpp \
         main.cpp \
+        message.cpp \
         mpu6050.cpp \
         robotcontrol.cpp
 HEADERS += \
+    gattserver.h \
     i2cdev.h \
     initwiringpi.h \
+    message.h \
     mpu6050.h \
     robotcontrol.h
 INCLUDEPATH += /usr/local/include
@@ -25,6 +29,7 @@ else: unix:!android: target.path = /opt/$${TARGET}/bin
 # sudo apt-get install build-essential devscripts
 # sudo apt install qt6-base-dev qt6-base-dev-tools
 # sudo ln -sf /usr/lib/qt6/bin/qmake6 /usr/local/bin/qmake
+# sudo apt install qt6-connectivity-dev libqt6bluetooth6 qt6-base-dev
 # sudo apt install libi2c-dev i2c-tools
 # sudo apt install libgpiod-dev
 # git clone https://github.com/WiringPi/WiringPi.git
@@ -36,3 +41,6 @@ else: unix:!android: target.path = /opt/$${TARGET}/bin
 # sudo nmcli connection modify "SSID" connection.autoconnect yes
 # nmcli connection show
 # nmcli connection show SSID | grep -E 'autoconnect|ssid|psk'
+
+DISTFILES += \
+    docs.txt
