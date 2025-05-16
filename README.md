@@ -2,7 +2,7 @@
 
 A self-balancing robot project powered by Raspberry Pi 5, featuring precise motor control, Bluetooth connectivity, and a mobile app interface.
 
-![BalanceRobot](https://github.com/yourusername/balancerobot/raw/main/images/robot.jpg)
+![BalanceRobot](https://github.com/takyonxxx/BalanceRobotPI/blob/main/stl/F2BNOQ7J839QTHL.stl)
 
 ## Overview
 
