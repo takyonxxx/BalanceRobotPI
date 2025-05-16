@@ -51,6 +51,79 @@ The bidirectional ESCs provide:
 - Compatible with standard PWM signal from Raspberry Pi
 - Quick response time essential for balance corrections
 
+## Connections and Pinouts
+
+### Raspberry Pi 5 GPIO Connections
+
+| Component | Raspberry Pi Pin | Description |
+|-----------|------------------|-------------|
+| **MPU6050** | | |
+| VCC | 3.3V (Pin 1) | Power for MPU6050 |
+| GND | GND (Pin 6) | Ground |
+| SCL | GPIO 3 (Pin 5) | I2C Clock |
+| SDA | GPIO 2 (Pin 3) | I2C Data |
+| | | |
+| **ESC1 (Right Motor)** | | |
+| Signal | GPIO 18 (Pin 12) | PWM Control Signal |
+| VCC | External Power Only | Do NOT connect to Raspberry Pi |
+| GND | GND (Pin 14) | Common ground |
+| | | |
+| **ESC2 (Left Motor)** | | |
+| Signal | GPIO 19 (Pin 35) | PWM Control Signal |
+| VCC | External Power Only | Do NOT connect to Raspberry Pi |
+| GND | GND (Pin 39) | Common ground |
+| | | |
+| **Status LED** | | |
+| LED+ | GPIO 22 (Pin 15) | Status indicator |
+| LED- | GND (Pin 34) | via appropriate resistor |
+
+### MPU6050 Orientation
+
+For proper balance control, the MPU6050 should be mounted with:
+- X-axis aligned parallel to the wheels (pointing forward)
+- Y-axis perpendicular to the wheels (pointing to the side)
+- Z-axis pointing upward
+
+### Power Distribution
+
+- Power the Raspberry Pi via its USB-C power input
+- Power the ESCs and motors with a separate 3S LiPo battery (11.1V) 
+- Ensure common ground between Raspberry Pi and ESC power circuits
+- Use appropriate voltage regulators/BECs if powering everything from a single battery
+
+### Wiring Diagram
+
+```
+                           +---------------+
+                           | Raspberry Pi 5|
+                           +---------------+
+                           | GPIO2  - SDA  |----+
+                           | GPIO3  - SCL  |---+|
+                           | GPIO18 - ESC1 |--+ ||
+                           | GPIO19 - ESC2 |-+ |||
+                           | GPIO22 - LED  |+ ||||
+                           | GND           |-|-||||
+                           | 3.3V          |--|-|||
+                           +---------------+  | |||
+                                              | |||
++----------+                  +----------+    | |||
+| 3S LiPo  |                  | MPU6050  |<---|-||+
+| Battery  |                  +----------+    | ||
++----------+                                  | ||
+      |                      +------------+   | ||
+      +---+           +------| Right ESC  |<--|-|+
+          |           |      +------------+   | |
+      +---+-----------+--+                    | |
+      |      BEC*     |  |   +------------+   | |
+      | (if required) |  +---| Left ESC   |<--|-+
+      +--------------+      +------------+    |
+                                              |
+                            +------------+    |
+                            | Status LED |<---+
+                            +------------+
+```
+*BEC: Battery Eliminator Circuit (voltage regulator)
+
 ## Software Architecture
 
 The project is built using Qt/C++ for the Raspberry Pi control system and features:
@@ -160,3 +233,7 @@ Common issues and solutions:
 3. **Unable to connect via Bluetooth**: Verify Bluetooth service is running and permissions are set
 4. **Poor balance performance**: Adjust PID parameters starting with P and D values
 5. **Loop overrun warnings**: Increase mainLoop timing to accommodate system capabilities
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
