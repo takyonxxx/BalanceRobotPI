@@ -1,6 +1,6 @@
 # BalanceRobot
 
-A self-balancing robot project powered by Raspberry Pi 5, featuring precise motor control, Bluetooth connectivity, and a mobile app interface.
+A self-balancing robot project powered by Raspberry Pi 5, featuring precise motor control with 2208 brushless gimbal motors, bidirectional ESCs, Bluetooth connectivity, and a mobile app interface.
 
 ## 3D Models
 
@@ -8,6 +8,17 @@ You can view and interact with the 3D models directly in GitHub:
 
 - [View BalanceRobot Frame STL](https://github.com/takyonxxx/BalanceRobotPI/blob/main/stl/F2BNOQ7J839QTHL.stl)
 - [View BalanceRobot Wheel STL](https://github.com/takyonxxx/BalanceRobotPI/blob/main/stl/FDFVE76J839QTI2.stl)
+
+<table>
+  <tr>
+    <td><img src="https://github.com/takyonxxx/BalanceRobotPI/raw/main/images/frame_preview.jpg" alt="Frame Preview" width="300"/></td>
+    <td><img src="https://github.com/takyonxxx/BalanceRobotPI/raw/main/images/wheel_preview.jpg" alt="Wheel Preview" width="300"/></td>
+  </tr>
+  <tr>
+    <td align="center">Robot Frame</td>
+    <td align="center">Robot Wheel</td>
+  </tr>
+</table>
 
 ## Overview
 
@@ -20,6 +31,7 @@ BalanceRobot is a two-wheeled self-balancing robot that uses PID control algorit
 
 - **Real-time Balance Control**: Uses MPU6050 IMU for precise angle measurement and PID control
 - **High-precision PWM Generation**: Custom high-resolution PWM threads for precise ESC control
+- **Powerful Motor System**: 2X 2208 brushless gimbal motors with bidirectional ESCs for responsive movement
 - **Bluetooth Low Energy (BLE) Connectivity**: Remote control and telemetry using GATT server
 - **Touch-friendly Mobile Interface**: Intuitive control app optimized for touch screens
 - **Parameter Tuning**: Adjust PID parameters in real-time for optimal performance
@@ -30,10 +42,25 @@ BalanceRobot is a two-wheeled self-balancing robot that uses PID control algorit
 
 - Raspberry Pi 5 (4 or 3 may work with timing adjustments)
 - MPU6050 IMU sensor (connected via I2C)
-- Two brushless motors with ESCs (Electronic Speed Controllers)
+- 2X 2208 brushless gimbal motors
+- Bidirectional ESCs (Electronic Speed Controllers)
 - Battery (3S LiPo recommended)
-- Chassis with two wheels
+- 3D printed chassis with two wheels
 - Mobile device with Bluetooth support (for remote control)
+
+## Motor & ESC Setup
+
+The project uses 2208 brushless gimbal motors, which are ideal for self-balancing robots due to their:
+- High torque at low RPM
+- Precise control
+- Compact design
+- Low vibration
+
+The bidirectional ESCs provide:
+- Forward and reverse control
+- Smooth acceleration and deceleration
+- Compatible with standard PWM signal from Raspberry Pi
+- Quick response time essential for balance corrections
 
 ## Software Architecture
 
