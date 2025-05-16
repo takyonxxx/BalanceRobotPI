@@ -2,7 +2,23 @@
 
 A self-balancing robot project powered by Raspberry Pi 5, featuring precise motor control, Bluetooth connectivity, and a mobile app interface.
 
-![BalanceRobot](https://github.com/yourusername/balancerobot/raw/main/images/robot.jpg)
+## 3D Models
+
+You can view and interact with the 3D models directly in GitHub:
+
+- [View BalanceRobot Frame STL](https://github.com/takyonxxx/BalanceRobotPI/blob/main/stl/F2BNOQ7J839QTHL.stl)
+- [View BalanceRobot Wheel STL](https://github.com/takyonxxx/BalanceRobotPI/blob/main/stl/FDFVE76J839QTI2.stl)
+
+<table>
+  <tr>
+    <td><img src="https://github.com/takyonxxx/BalanceRobotPI/raw/main/images/frame_preview.jpg" alt="Frame Preview" width="300"/></td>
+    <td><img src="https://github.com/takyonxxx/BalanceRobotPI/raw/main/images/wheel_preview.jpg" alt="Wheel Preview" width="300"/></td>
+  </tr>
+  <tr>
+    <td align="center">Robot Frame</td>
+    <td align="center">Robot Wheel</td>
+  </tr>
+</table>
 
 ## Overview
 
@@ -63,8 +79,8 @@ sudo apt install git cmake qtbase5-dev wiringpi libi2c-dev
 2. Clone the repository:
 
 ```bash
-git clone https://github.com/yourusername/balancerobot.git
-cd balancerobot
+git clone https://github.com/takyonxxx/BalanceRobotPI.git
+cd BalanceRobotPI
 ```
 
 3. Build the project:
@@ -138,9 +154,3 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Acknowledgments
-
-- Thanks to the Raspberry Pi Foundation for the amazing hardware
-- Inspiration from various self-balancing robot projects
-- Qt framework for the cross-platform development capabilities
