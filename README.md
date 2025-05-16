@@ -107,8 +107,7 @@ cd BalanceRobotPI
 3. Build the project:
 
 ```bash
-mkdir build && cd build
-cmake ..
+qmake
 make
 ```
 
@@ -123,7 +122,7 @@ sudo ./balancerobot
 ### Mobile App Setup
 
 1. Install Qt on your development machine
-2. Open the `mobile_app/BalanceRobotApp.pro` file in Qt Creator
+2. Open the `mobile_app/BalanceRobotRemote.pro` file in Qt Creator qt6.9 Clang arm64-v8a
 3. Build and deploy to your Android or iOS device
 
 ## Usage
@@ -132,7 +131,7 @@ sudo ./balancerobot
 2. Launch the control application on the Raspberry Pi
 3. Open the mobile app and connect to the robot via Bluetooth
 4. Place the robot in an upright position to activate balance mode
-5. Use the directional controls on the app to move the robot
+5. Arm device and Use the directional controls on the app to move the robot
 6. Adjust PID parameters as needed for optimal balance performance
 
 ## PID Tuning Guide
