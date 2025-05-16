@@ -9,17 +9,6 @@ You can view and interact with the 3D models directly in GitHub. The 2208 brushl
 - [View BalanceRobot Frame STL](https://github.com/takyonxxx/BalanceRobotPI/blob/main/stl/F2BNOQ7J839QTHL.stl)
 - [View BalanceRobot Wheel STL](https://github.com/takyonxxx/BalanceRobotPI/blob/main/stl/FDFVE76J839QTI2.stl)
 
-<table>
-  <tr>
-    <td><img src="https://github.com/takyonxxx/BalanceRobotPI/raw/main/images/frame_preview.jpg" alt="Frame Preview" width="300"/></td>
-    <td><img src="https://github.com/takyonxxx/BalanceRobotPI/raw/main/images/wheel_preview.jpg" alt="Wheel Preview" width="300"/></td>
-  </tr>
-  <tr>
-    <td align="center">Robot Frame</td>
-    <td align="center">Robot Wheel</td>
-  </tr>
-</table>
-
 ## Overview
 
 BalanceRobot is a two-wheeled self-balancing robot that uses PID control algorithms to maintain equilibrium while allowing for remote control via Bluetooth. The project consists of two major components:
