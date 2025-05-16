@@ -165,7 +165,7 @@ private:
     const float KC_MAX = 0.001f;
     const float KV_MIN = 0.0f;
     const float KV_MAX = 0.05f;
-    const float AC_MIN = 0.0f;
+    const float AC_MIN = -5.0f;
     const float AC_MAX = 5.0f;
 
     // Member variables

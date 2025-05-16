@@ -166,7 +166,7 @@ void MainWindow::createUI()
     m_rightButton = new QPushButton(this);
 
     int iconSize = static_cast<int>(50 * m_scaleFactor);
-    QSize buttonSize(iconSize, iconSize);
+    QSize buttonSize(iconSize * 1.25, iconSize);
 
     QPixmap forwardPixmap(":/icons/forward.png");
     QPixmap backwardPixmap(":/icons/back.png");
@@ -203,11 +203,11 @@ void MainWindow::createUI()
 
     QFrame *directionFrame = new QFrame(this);
     directionFrame->setFrameStyle(QFrame::StyledPanel | QFrame::Raised);
-    directionFrame->setStyleSheet("background-color: rgba(0, 51, 51, 100); border-radius: 15px;");
+    directionFrame->setStyleSheet("background-color: rgba(208, 211, 212, 255); border-radius: 15px;");
     directionFrame->setLayout(directionLayout);
 
     QGroupBox *parameterGroup = new QGroupBox("Control Parameters", this);
-    parameterGroup->setStyleSheet("QGroupBox { color: white; font-size: 18px; font-weight: bold; "
+    parameterGroup->setStyleSheet("QGroupBox { color: black; font-size: 18px; font-weight: bold; "
                                   "border: 2px solid #336699; border-radius: 10px; margin-top: 15px; padding: 10px; } "
                                   "QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top center; padding: 0 10px; }");
 
@@ -219,6 +219,12 @@ void MainWindow::createUI()
     m_cParameter = new TouchFriendlyParameterWidget("C", KC_MIN, KC_MAX, 4, this);
     m_vParameter = new TouchFriendlyParameterWidget("V", KV_MIN, KV_MAX, 2, this);
     m_acParameter = new TouchFriendlyParameterWidget("AC", AC_MIN, AC_MAX, 2, this);
+
+    m_pParameter->setValue(0);
+    m_dParameter->setValue(0);
+    m_cParameter->setValue(0);
+    m_vParameter->setValue(0);
+    m_acParameter->setValue(0);
 
     parameterLayout->addWidget(m_pParameter);
     parameterLayout->addWidget(m_dParameter);
