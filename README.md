@@ -4,7 +4,7 @@ A self-balancing robot project powered by Raspberry Pi 5, featuring precise moto
 
 ## 3D Models
 
-You can view and interact with the 3D models directly in GitHub:
+You can view and interact with the 3D models directly in GitHub. The 2208 brushless gimbal motors will be placed inside the wheels for a compact, integrated design:
 
 - [View BalanceRobot Frame STL](https://github.com/takyonxxx/BalanceRobotPI/blob/main/stl/F2BNOQ7J839QTHL.stl)
 - [View BalanceRobot Wheel STL](https://github.com/takyonxxx/BalanceRobotPI/blob/main/stl/FDFVE76J839QTI2.stl)
