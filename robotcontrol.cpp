@@ -1011,8 +1011,9 @@ void RobotControl::onDataReceived(QByteArray data)
                 auto soundText = QString(parsedValue.data());
                 qDebug() << "Speak command received:" << soundText;
             }
-            // Hareket komutları
-            // Hareket komutları
+            else if (parsedCommand == mTest) {
+                testAllEscs(10); // 10 seconds
+            }
             else if (parsedCommand == mForward || parsedCommand == mBackward ||
                      parsedCommand == mLeft || parsedCommand == mRight) {
                 // Değeri 0-100 aralığından yüzde olarak al

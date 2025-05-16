@@ -5,8 +5,8 @@
 BluetoothClient::BluetoothClient() :
     m_control(nullptr),
     m_service(nullptr),
-    m_state(bluetoothleState::Idle),
-    m_bFoundUARTService(false)
+    m_bFoundUARTService(false),
+    m_state(bluetoothleState::Idle)
 {
     /* 1 Step: Bluetooth LE Device Discovery */
     m_deviceDiscoveryAgent = new QBluetoothDeviceDiscoveryAgent(this);
@@ -46,12 +46,8 @@ void BluetoothClient::addDevice(const QBluetoothDeviceInfo &device)
     {
         if(device.name().isEmpty()) return;
 
-        QString info = "Device Found: " + device.name() + "\nUuid: " + device.deviceUuid().toString();
-        emit statusChanged(info);
-
         if(device.name().startsWith("Balance"))
         {
-            emit statusChanged("Found Balance Robot device: " + device.name());
             current_device = new DeviceInfo(device);
             m_deviceDiscoveryAgent->stop();
             QTimer::singleShot(500, this, [this]() {
@@ -64,11 +60,6 @@ void BluetoothClient::addDevice(const QBluetoothDeviceInfo &device)
 
 void BluetoothClient::scanFinished()
 {
-    if (!current_device)
-    {
-        QString info = "Low Energy device not found. Make sure your Balance Robot is powered on.";
-        emit statusChanged(info);
-    }
     setState(ScanFinished);
 }
 
@@ -76,9 +67,9 @@ void BluetoothClient::deviceScanError(QBluetoothDeviceDiscoveryAgent::Error erro
 {
     QString info;
     if (error == QBluetoothDeviceDiscoveryAgent::PoweredOffError)
-        info = "The Bluetooth adaptor is powered off, power it on before doing discovery.";
+        info = "The Bluetooth adaptor is powered off.";
     else if (error == QBluetoothDeviceDiscoveryAgent::InputOutputError)
-        info = "Writing or reading from the device resulted in an error.";
+        info = "Writing or reading error.";
     else {
         static QMetaEnum qme = m_deviceDiscoveryAgent->metaObject()->enumerator(
             m_deviceDiscoveryAgent->metaObject()->indexOfEnumerator("Error"));
@@ -86,11 +77,9 @@ void BluetoothClient::deviceScanError(QBluetoothDeviceDiscoveryAgent::Error erro
     }
 
     setState(Error);
-    emit statusChanged(info);
 }
 
 void BluetoothClient::startScan(){
-    emit statusChanged("Starting Bluetooth LE scan...");
     setState(Scanning);
     current_device = nullptr;
     m_bFoundUARTService = false;
@@ -104,7 +93,6 @@ void BluetoothClient::startScan(){
 }
 
 void BluetoothClient::startConnect(int i){
-    emit statusChanged("Connecting to device...");
     m_qvMeasurements.clear();
 
     if (m_control) {
@@ -143,38 +131,28 @@ void BluetoothClient::serviceDiscovered(const QBluetoothUuid &gatt)
     QString discoveredUuid = gatt.toString().remove("{").remove("}").toLower();
     QString targetUuid = QString(SCANPARAMETERSUUID).toLower();
 
-    emit statusChanged("Service discovered: " + discoveredUuid);
-
     if (discoveredUuid.contains(targetUuid) || targetUuid.contains(discoveredUuid)) {
         m_bFoundUARTService = true;
         current_gatt = gatt;
-        emit statusChanged("Found target UART service");
     }
 }
 
 void BluetoothClient::serviceScanDone()
 {
-    emit statusChanged("Service scan completed");
-
     delete m_service;
     m_service = nullptr;
 
     if(m_bFoundUARTService)
     {
         m_service = m_control->createServiceObject(current_gatt, this);
-        emit statusChanged("Created service object for UART");
     }
 
     if(!m_service)
     {
-        emit statusChanged("Failed to create service object. Disconnecting.");
         disconnectFromDevice();
         setState(DisConnected);
         return;
     }
-
-    QString info = "Service Found: " + current_gatt.toString();
-    emit statusChanged(info);
 
     /* 3 Step: Service Discovery */
     connect(m_service, SIGNAL(stateChanged(QLowEnergyService::ServiceState)),
@@ -190,7 +168,6 @@ void BluetoothClient::serviceScanDone()
 
 void BluetoothClient::disconnectFromDevice()
 {
-    emit statusChanged("Disconnecting from device...");
     if (m_control) {
         m_control->disconnectFromDevice();
     } else {
@@ -200,8 +177,6 @@ void BluetoothClient::disconnectFromDevice()
 
 void BluetoothClient::deviceDisconnected()
 {
-    emit statusChanged("Device disconnected. Try reconnecting if needed.");
-
     delete m_service;
     m_service = nullptr;
     setState(DisConnected);
@@ -209,7 +184,6 @@ void BluetoothClient::deviceDisconnected()
 
 void BluetoothClient::deviceConnected()
 {
-    emit statusChanged("Connected to device. Discovering services...");
     m_control->discoverServices();
     setState(Connected);
 }
@@ -218,11 +192,8 @@ void BluetoothClient::errorOccurred(QLowEnergyController::Error newError)
 {
     auto statusText = QString("Controller Error: %1").arg(newError);
     qDebug() << statusText;
-    emit statusChanged(statusText);
-
     // Add a recovery attempt for certain errors
     if (newError == QLowEnergyController::ConnectionError) {
-        emit statusChanged("Connection error. Trying to reconnect in 3 seconds...");
         QTimer::singleShot(3000, this, [this]() {
             if (current_device && m_state == Error) {
                 startConnect(0);
@@ -234,13 +205,12 @@ void BluetoothClient::errorOccurred(QLowEnergyController::Error newError)
 void BluetoothClient::controllerError(QLowEnergyController::Error error)
 {
     QString info = QStringLiteral("Controller Error: ") + m_control->errorString();
-    emit statusChanged(info);
+    setState(Error);
+    qDebug() << info;
 }
 
 void BluetoothClient::searchCharacteristic()
 {
-    emit statusChanged("Searching for characteristics...");
-
     if(m_service){
         foreach (QLowEnergyCharacteristic c, m_service->characteristics())
         {
@@ -250,8 +220,6 @@ void BluetoothClient::searchCharacteristic()
                     c.properties() & QLowEnergyCharacteristic::Write)
                 {
                     m_writeCharacteristic = c;
-                    QString info = "Tx Characteristic found\n" + c.uuid().toString();
-                    emit statusChanged(info);
 
                     if(c.properties() & QLowEnergyCharacteristic::WriteNoResponse)
                         m_writeMode = QLowEnergyService::WriteWithoutResponse;
@@ -261,23 +229,17 @@ void BluetoothClient::searchCharacteristic()
                 if (c.properties() & QLowEnergyCharacteristic::Notify || c.properties() & QLowEnergyCharacteristic::Read)
                 {
                     m_readCharacteristic = c;
-                    QString info = "Rx Characteristic found\n" + c.uuid().toString();
-                    emit statusChanged(info);
-
                     m_notificationDescRx = c.descriptor(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
                     if (m_notificationDescRx.isValid())
                     {
                         // Add a small delay before writing the descriptor
                         QTimer::singleShot(100, this, [this]() {
                             m_service->writeDescriptor(m_notificationDescRx, QByteArray::fromHex("0100"));
-                            emit statusChanged("Writing notification descriptor...");
                         });
                     }
                 }
             }
         }
-    } else {
-        emit statusChanged("Service object is invalid");
     }
 }
 
@@ -286,12 +248,9 @@ void BluetoothClient::serviceStateChanged(QLowEnergyService::ServiceState s)
 {
     if (s == QLowEnergyService::ServiceDiscovered)
     {
-        emit statusChanged("Service details discovered. Looking for characteristics...");
         searchCharacteristic();
     } else if (s == QLowEnergyService::InvalidService) {
-        emit statusChanged("Service became invalid");
     } else if (s == QLowEnergyService::DiscoveringService) {
-        emit statusChanged("Discovering service details...");
     }
 }
 
@@ -299,7 +258,6 @@ void BluetoothClient::updateData(const QLowEnergyCharacteristic &c, const QByteA
 {
     // Check if data is valid before processing
     if (value.isEmpty()) {
-        emit statusChanged("Received empty data packet");
         return;
     }
 
@@ -313,15 +271,12 @@ void BluetoothClient::updateData(const QLowEnergyCharacteristic &c, const QByteA
     try {
         emit newData(value);
     } catch (const std::exception& e) {
-        emit statusChanged(QString("Error processing data: %1").arg(e.what()));
     } catch (...) {
-        emit statusChanged("Unknown error processing data");
     }
 }
 
 void BluetoothClient::confirmedDescriptorWrite(const QLowEnergyDescriptor &d, const QByteArray &value)
 {
-    emit statusChanged("Notification descriptor written successfully");
     setState(AcquireData);
 }
 
@@ -333,18 +288,12 @@ void BluetoothClient::writeData(QByteArray data)
         QTimer::singleShot(50, this, [this, data]() {
             m_service->writeCharacteristic(m_writeCharacteristic, data, m_writeMode);
         });
-    } else {
-        emit statusChanged("Cannot write data: service or characteristic not valid");
     }
 }
 
 void BluetoothClient::setState(BluetoothClient::bluetoothleState newState)
 {
-    if (m_state == newState)
-        return;
-
     m_state = newState;
-    emit changedState(newState);
 
     // Add debug information about state changes
     QString stateStr;
@@ -360,6 +309,8 @@ void BluetoothClient::setState(BluetoothClient::bluetoothleState newState)
     case Error: stateStr = "Error"; break;
     default: stateStr = "Unknown"; break;
     }
+
+    emit changedState(newState);
 
     qDebug() << "Bluetooth state changed to:" << stateStr;
 }

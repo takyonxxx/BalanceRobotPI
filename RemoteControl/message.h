@@ -11,6 +11,7 @@
 #define mRead       0x02 //Read request
 #define mArmed      0x03
 #define mDisArmed   0x04
+#define mTest       0x05
 #define mForward    0xa0
 #define mBackward   0xa1
 #define mLeft       0xb0
