@@ -41,6 +41,7 @@ else: unix:!android: target.path = /opt/$${TARGET}/bin
 # sudo nmcli connection modify "SSID" connection.autoconnect yes
 # nmcli connection show
 # nmcli connection show SSID | grep -E 'autoconnect|ssid|psk'
+# sudo journalctl -u balancerobot.service -f
 
 DISTFILES += \
     docs.txt
