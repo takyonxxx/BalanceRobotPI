@@ -960,8 +960,9 @@ void RobotControl::onDataReceived(QByteArray data)
             if (parsedCommand == mPP || parsedCommand == mPD || parsedCommand == mPC ||
                 parsedCommand == mPV || parsedCommand == mSD || parsedCommand == mAC ) {
 
+                // Fix for signedness comparison
                 // Byte array'i float'a dönüştür
-                if (parsedValue.size() >= sizeof(float)) {
+                if (static_cast<size_t>(parsedValue.size()) >= sizeof(float)) {
                     float floatValue;
                     memcpy(&floatValue, parsedValue.constData(), sizeof(float));
 
@@ -1015,6 +1016,7 @@ void RobotControl::onDataReceived(QByteArray data)
             else if (parsedCommand == mTest) {
                 testAllEscs(10); // 10 seconds
             }
+            // Fix typo in variable name (parsedCommannd -> parsedCommand)
             else if (parsedCommand == mForward || parsedCommand == mBackward ||
                      parsedCommand == mLeft || parsedCommand == mRight) {
                 // Değeri 0-100 aralığından yüzde olarak al
@@ -1070,4 +1072,3 @@ void RobotControl::onDataReceived(QByteArray data)
         qDebug() << "Unknown exception during message processing";
     }
 }
-
