@@ -642,6 +642,7 @@ void RobotControl::calculateAngle()
 
     // 2. Calculate angle from accelerometer
     float accAngle = atan2f(accelY, -accelX) * 57.2958f;  // Convert to degrees
+    accAngle += KAC + 90.0f;
 
     // 3. Combine using complementary filter
     // Adjust filter weight for 10ms timing
